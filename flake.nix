@@ -248,11 +248,12 @@
           checks = perPolicy (
             policy:
             pkgs.runCommand "bootchain-check-${policy}" { nativeBuildInputs = [ (testFor policy) ]; } ''
+              set -o pipefail
               export HOME=$TMPDIR
               cd $TMPDIR
               bootchain-test-${policy} --lg-log=lg-log -v 2>&1 | tee $TMPDIR/pytest.log
               mkdir -p $out
-              cp -r $TMPDIR/pytest.log lg-log $out/ 2>/dev/null || true
+              cp -r $TMPDIR/pytest.log lg-log $out/
             ''
           );
 
