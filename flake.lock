@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "barebox-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787577036,
+        "narHash": "sha256-Rzv0ncO0IFT9w89Zh9BcCWi/A+1/UDb168bqOjAeC1k=",
+        "owner": "barebox",
+        "repo": "barebox",
+        "rev": "a59cb95e1133c7f4844c68398c570694d1c7d9ed",
+        "type": "github"
+      },
+      "original": {
+        "owner": "barebox",
+        "ref": "v2026.08.0",
+        "repo": "barebox",
+        "type": "github"
+      }
+    },
+    "labgrid-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785489365,
+        "narHash": "sha256-CANWWMoODUS3JI5jWDvvuUZqTcxJAXBJYYMbx2cZ4/c=",
+        "owner": "labgrid-project",
+        "repo": "labgrid",
+        "rev": "424a0b708ca5d48b1a6e65722d2910a6d0c8751d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "labgrid-project",
+        "repo": "labgrid",
+        "rev": "424a0b708ca5d48b1a6e65722d2910a6d0c8751d",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1787736819,
+        "narHash": "sha256-cV5xEJJK3BvhU8rEd4mC9UsmDi5qscv/kzGPhBRC5WA=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "9fbb54b33e91ee4ca368e35a78e0613c720600b3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "barebox-src": "barebox-src",
+        "labgrid-src": "labgrid-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

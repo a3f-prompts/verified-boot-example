@@ -1,0 +1,54 @@
+name: CI
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build images (${{ matrix.policy }})
+    runs-on: docker
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        policy: [lockdown, factory, devel]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: https://github.com/cachix/install-nix-action@v31
+        with:
+          install_options: --daemon --yes
+      - run: nix build -L '.#images-${{ matrix.policy }}'
+      - run: nix run -L '.#run-${{ matrix.policy }}' -- --dry-run
+      - uses: forgejo/upload-artifact@v4
+        with:
+          name: bootchain-images-${{ matrix.policy }}
+          path: |
+            result/barebox-stage1.img
+            result/imx8mm-evk-qemu.dtb
+            result/disk.img
+          include-hidden-files: true
+
+  boot-test:
+    name: Boot test (${{ matrix.policy }})
+    runs-on: docker
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        policy: [lockdown, factory, devel]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: https://github.com/cachix/install-nix-action@v31
+        with:
+          install_options: --daemon --yes
+      - run: nix build -L '.#checks.x86_64-linux.${{ matrix.policy }}'
+      - uses: forgejo/upload-artifact@v4
+        if: always()
+        with:
+          name: boot-test-${{ matrix.policy }}
+          path: result/
+          include-hidden-files: true

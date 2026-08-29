@@ -1,0 +1,64 @@
+/*
+ * Final payload: Debian's arm64 kernel, the upstream imx8mm-evk device tree
+ * and a busybox initramfs, signed with the development key. barebox proper
+ * verifies the configuration signature before booting.
+ */
+/dts-v1/;
+
+/ {
+	description = "Linux for QEMU imx8mm-evk";
+	#address-cells = <1>;
+
+	images {
+		kernel {
+			description = "Debian arm64 kernel Image (gzip)";
+			data = /incbin/("@KERNEL@");
+			type = "kernel";
+			arch = "arm64";
+			os = "linux";
+			compression = "gzip";
+			hash-1 {
+				algo = "sha256";
+			};
+		};
+
+		fdt {
+			description = "imx8mm-evk.dtb";
+			data = /incbin/("@DTB@");
+			type = "flat_dt";
+			arch = "arm64";
+			compression = "none";
+			hash-1 {
+				algo = "sha256";
+			};
+		};
+
+		initramfs {
+			description = "busybox initramfs";
+			data = /incbin/("@INITRAMFS@");
+			type = "ramdisk";
+			arch = "arm64";
+			os = "linux";
+			compression = "none";
+			hash-1 {
+				algo = "sha256";
+			};
+		};
+	};
+
+	configurations {
+		default = "conf-1";
+
+		conf-1 {
+			description = "Linux + initramfs";
+			kernel = "kernel";
+			fdt = "fdt";
+			ramdisk = "initramfs";
+			signature-1 {
+				algo = "sha256,rsa4096";
+				key-name-hint = "dev";
+				sign-images = "kernel", "fdt", "ramdisk";
+			};
+		};
+	};
+};

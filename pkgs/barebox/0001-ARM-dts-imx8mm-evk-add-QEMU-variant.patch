@@ -1,0 +1,47 @@
+From abd93d68f65af7ae3b114b5531bbea20e758f352 Mon Sep 17 00:00:00 2001
+From: Ahmad Fatoum <a.fatoum@pengutronix.de>
+Date: Sat, 29 Aug 2026 10:03:52 +0200
+Subject: [PATCH] ARM: dts: imx8mm-evk: add QEMU variant
+
+QEMU 11.1 added the imx8mm-evk machine type. Add a device tree variant
+that disables the DDRC node, because QEMU doesn't emulate the DDR
+controller registers that barebox reads to detect memory size. barebox
+falls back to the memory node QEMU fixes up into the device tree.
+
+Signed-off-by: Ahmad Fatoum <a.fatoum@pengutronix.de>
+---
+ arch/arm/dts/Makefile            | 2 +-
+ arch/arm/dts/imx8mm-evk-qemu.dts | 8 ++++++++
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm/dts/imx8mm-evk-qemu.dts
+
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index b82f6c96fca2..a2cf06a84657 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -179,7 +179,7 @@ lwl-$(CONFIG_MACH_SCB9328) += imx1-scb9328.dtb.o
+ lwl-$(CONFIG_MACH_TECHNEXION_WANDBOARD) += imx6q-wandboard.dtb.o imx6dl-wandboard.dtb.o
+ lwl-$(CONFIG_MACH_TECHNEXION_PICO_HOBBIT) += imx6ul-pico-hobbit.dtb.o
+ lwl-$(CONFIG_MACH_NXP_IMX6ULL_EVK) += imx6ull-14x14-evk.dtb.o
+-lwl-$(CONFIG_MACH_NXP_IMX8MM_EVK) += imx8mm-evk.dtb.o imx8mm-evkb.dtb.o
++lwl-$(CONFIG_MACH_NXP_IMX8MM_EVK) += imx8mm-evk.dtb.o imx8mm-evkb.dtb.o imx8mm-evk-qemu.dtb.o
+ lwl-$(CONFIG_MACH_NXP_IMX8MN_EVK) += imx8mn-evk.dtb.o imx8mn-ddr4-evk.dtb.o
+ lwl-$(CONFIG_MACH_NXP_IMX8MP_EVK) += imx8mp-evk.dtb.o
+ lwl-$(CONFIG_MACH_NXP_IMX8MP_FRDM) += imx8mp-frdm.dtb.o
+diff --git a/arch/arm/dts/imx8mm-evk-qemu.dts b/arch/arm/dts/imx8mm-evk-qemu.dts
+new file mode 100644
+index 000000000000..24b019ff06f1
+--- /dev/null
++++ b/arch/arm/dts/imx8mm-evk-qemu.dts
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++
++#include "imx8mm-evk.dts"
++
++/* QEMU doesn't emulate the DDRC, so disable and rely on the memory node it provides instead */
++&ddrc {
++	status = "disabled";
++};
+-- 
+2.47.3
+

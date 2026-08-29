@@ -1,0 +1,5 @@
+.direnv/
+result*
+__pycache__/
+.pytest_cache/
+lg-log/

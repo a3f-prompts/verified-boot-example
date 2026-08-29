@@ -1,0 +1,34 @@
+# labgrid environment for the reference bootchain.
+#
+# $LG_IMAGES must point at a directory containing barebox.img,
+# imx8mm-evk-qemu.dtb and disk.img, i.e. an "images-<policy>" flake output.
+# `nix run` sets it for you.
+#
+# QEMU's imx8mm-evk has no loadable boot ROM, so barebox is started through
+# -kernel as a generic barebox-dt-2nd.img (PBL + barebox proper in one image,
+# started like a Linux kernel; see README, "The PBL and the boot ROM").
+# UART1 is unused on the board, the console is UART2, hence the leading
+# "-serial null". The disk image goes to uSDHC2 (bus=1; QEMU has one SD bus
+# per uSDHC), the SD card slot on the real board, and is opened in snapshot
+# mode as the Nix store is read-only.
+targets:
+  main:
+    drivers:
+      QEMUDriver:
+        qemu_bin: qemu-system-aarch64
+        machine: imx8mm-evk
+        cpu: cortex-a53
+        memory: 1024M
+        kernel: barebox.img
+        dtb: imx8mm-evk-qemu.dtb
+        display: none
+        extra_args: !template '-serial null -drive if=sd,bus=1,unit=0,format=raw,file=$LG_IMAGES/disk.img,snapshot=on'
+      BareboxDriver:
+        prompt: 'barebox@[^:]+:[^ ]+ '
+        bootstring: 'Linux version'
+      BootchainStrategy: {}
+images:
+  barebox.img: !template "$LG_IMAGES/barebox.img"
+  imx8mm-evk-qemu.dtb: !template "$LG_IMAGES/imx8mm-evk-qemu.dtb"
+imports:
+  - strategy.py
