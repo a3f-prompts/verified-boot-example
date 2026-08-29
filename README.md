@@ -168,16 +168,30 @@ the build relies on `security_olddefconfig` to normalize the policy files.
 
 ### Known emulation issues
 
-* **Multi-block SD reads with DMA lose their last sector.** With barebox's
-  default SDMA path (`sdhci_transfer_data_dma()`), every 128-sector read
-  through QEMU's uSDHC model comes back with the final 512-byte sector
-  zeroed while all other sectors are intact (found with `crc32 -f
-  /dev/mmc1.kernel <off>+<len>` against the host image; the FIT then fails
-  its `hash-1` checks although the configuration signature, which only
-  covers the hash *values*, verifies). barebox is therefore built with
-  `CONFIG_MCI_IMX_ESDHC_PIO=y`, which reads correctly. Whether the bug is
-  in QEMU's `sdhci_sdma_transfer_multi_blocks()` or in barebox's driver
-  has not been determined; real hardware is not affected by the
+* **Multi-block SD transfers with DMA lose their last sector — a QEMU
+  bug.** With barebox's SDMA path (`sdhci_transfer_data_dma()`), every
+  128-sector transfer through QEMU's uSDHC model comes back with the final
+  512-byte sector stale while all other sectors are intact (found with
+  `crc32 -f /dev/mmc1.kernel <off>+<len>` against the host image; the FIT
+  then fails its `hash-1` checks although the configuration signature,
+  which only covers the hash *values*, verifies).
+
+  QEMU starts an SDMA transfer on *any* write to the last byte of the SDMA
+  System Address register as long as block count and block size are
+  non-zero and SDMA is selected (`hw/sd/sdhci.c`, `sdhci_write()`, `case
+  SDHC_SYSAD`). On real hardware such a write only *resumes* a transfer
+  that the controller suspended at a Host SDMA Buffer Boundary; a transfer
+  is started by writing the Command register. barebox programs block size
+  and count before the DMA address — legal, just not the order the spec's
+  transaction sequence and Linux use — so its setup write looks like a
+  resume to QEMU: a spurious single-block transfer runs before the command
+  is issued, hands the card's dummy data to memory, decrements the block
+  count and ends the "transfer". The following CMD18/CMD25 then moves only
+  127 of the 128 blocks. `-d guest_errors` shows this as
+  `sd_read_data: not in Sending-Data state` right before the CMD18.
+
+  Until QEMU is fixed, barebox is built with `CONFIG_MCI_IMX_ESDHC_PIO=y`,
+  which transfers correctly. Real hardware is not affected by the
   workaround, only slower. Drop the option to reproduce.
 * `imx8mm-evk` needs an explicit `-dtb`; QEMU does not synthesize one.
 * `-drive if=sd` must be addressed as `bus=<uSDHC index>,unit=0`; `index=N`
