@@ -9,7 +9,11 @@
   name ? "disk",
   sizeMiB ? 64, # QEMU wants SD card images to be a power of two in size
   diskUuid,
-  # list of { name; image; sizeMiB; uuid; }
+  # list of { name; sizeMiB; uuid; image ? null; type ? "linux"; }
+  # A partition without an "image" is left zeroed (barebox state, for
+  # example, initializes its backend on first write).
+  # "type" is an sfdisk partition type: a GPT type GUID or one of sfdisk's
+  # aliases for one ("linux" is 0fc63daf-8483-4772-8e79-3d69d8477de4).
   partitions,
 }:
 let
@@ -52,10 +56,10 @@ stdenvNoCC.mkDerivation {
     ${lib.concatMapStringsSep "\n" (
       p:
       "start=${toString (p.startMiB * sectorsPerMiB)}, size=${toString (p.sizeMiB * sectorsPerMiB)}, "
-      + "type=linux, name=${p.name}, uuid=${p.uuid}"
+      + "type=${p.type or "linux"}, name=${p.name}, uuid=${p.uuid}"
     ) layout}
     SFDISK
-    ${lib.concatMapStringsSep "\n" (p: ''
+    ${lib.concatMapStringsSep "\n" (p: lib.optionalString (p.image or null != null) ''
       size=$(stat -c %s ${p.image})
       if [ "$size" -gt $((${toString p.sizeMiB} * 1024 * 1024)) ]; then
         echo "${p.image} ($size bytes) does not fit into partition ${p.name}" >&2

@@ -1,0 +1,110 @@
+From 3e2cfc242a44e6bc011ab891a3638640f579e494 Mon Sep 17 00:00:00 2001
+From: Ahmad Fatoum <a.fatoum@pengutronix.de>
+Date: Sat, 29 Aug 2026 23:23:39 +0200
+Subject: [PATCH] ARM: dts: imx8mm-evk-qemu: add A/B boot state
+
+The reference bootchain boots one of two redundant kernel partitions,
+chosen by the bootchooser. Describe the state variable set that holds
+its priorities and remaining attempt counters.
+
+The backend is the SD card itself rather than a fixed partition: barebox
+resolves a block device backend to the GPT partition of type
+4778ed65-bf42-45fa-9c5b-287a1dc4aab1, which the disk image provides.
+"direct" is the storage type for backends that need no erase; three
+copies of the variable set are stored backend-stridesize bytes apart.
+
+Signed-off-by: Ahmad Fatoum <a.fatoum@pengutronix.de>
+---
+ arch/arm/dts/imx8mm-evk-qemu.dts | 76 ++++++++++++++++++++++++++++++++
+ 1 file changed, 76 insertions(+)
+
+diff --git a/arch/arm/dts/imx8mm-evk-qemu.dts b/arch/arm/dts/imx8mm-evk-qemu.dts
+index 24b019ff06f1..5dd5f10f70ad 100644
+--- a/arch/arm/dts/imx8mm-evk-qemu.dts
++++ b/arch/arm/dts/imx8mm-evk-qemu.dts
+@@ -2,6 +2,82 @@
+ 
+ #include "imx8mm-evk.dts"
+ 
++/ {
++	aliases {
++		state = &state;
++	};
++
++	/*
++	 * Redundant A/B boot state for the bootchooser: priorities and
++	 * remaining attempt counters of the two boot targets. Stored on the
++	 * SD card in the GPT partition of type
++	 * 4778ed65-bf42-45fa-9c5b-287a1dc4aab1 (BAREBOX_STATE_PARTITION_GUID),
++	 * which barebox looks up itself, hence the phandle to the whole
++	 * device rather than to a fixed partition.
++	 *
++	 * "direct" is the storage type for backends that need no erase, i.e.
++	 * everything block-device-like; three copies of the variable set are
++	 * written side by side, backend-stridesize bytes apart. One copy is
++	 * 16 bytes of raw-format header + 20 bytes of data + 8 bytes of
++	 * bucket meta data, so 0x40 leaves room to grow.
++	 */
++	state: state {
++		compatible = "barebox,state";
++		magic = <0x9d3a2b17>;
++		backend = <&usdhc2>;
++		backend-type = "raw";
++		backend-storage-type = "direct";
++		backend-stridesize = <0x40>;
++
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		bootstate {
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			system0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				remaining_attempts@0 {
++					reg = <0x0 0x4>;
++					type = "uint32";
++					default = <3>;
++				};
++
++				priority@4 {
++					reg = <0x4 0x4>;
++					type = "uint32";
++					default = <20>;
++				};
++			};
++
++			system1 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				remaining_attempts@8 {
++					reg = <0x8 0x4>;
++					type = "uint32";
++					default = <3>;
++				};
++
++				priority@c {
++					reg = <0xc 0x4>;
++					type = "uint32";
++					default = <10>;
++				};
++			};
++
++			last_chosen@10 {
++				reg = <0x10 0x4>;
++				type = "uint32";
++			};
++		};
++	};
++};
++
+ /* QEMU doesn't emulate the DDRC, so disable and rely on the memory node it provides instead */
+ &ddrc {
+ 	status = "disabled";
+-- 
+2.47.3
+

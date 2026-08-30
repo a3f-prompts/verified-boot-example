@@ -1,6 +1,0 @@
-#!/bin/sh
-# Boot entry "fit": the signed Linux FIT image on the raw GPT partition
-# labelled "kernel". The boot command runs bootm on global.bootm.image;
-# whether an unsigned image would be accepted is up to the active security
-# policy (SCONFIG_BOOT_UNSIGNED_IMAGES).
-global.bootm.image=/dev/mmc1.kernel

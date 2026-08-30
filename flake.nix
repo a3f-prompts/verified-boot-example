@@ -38,6 +38,24 @@
       ];
       defaultPolicy = "factory";
 
+      # The redundant boot slots. Each is a bootchooser target <target> whose
+      # boot script config/env/barebox/boot/<target> boots the signed FIT from
+      # the GPT partition <partition>; priorities and remaining attempt
+      # counters live in the barebox state instance on the same card (the
+      # state node in pkgs/barebox/0003-*.patch).
+      slots = [
+        {
+          target = "system0";
+          partition = "kernel0";
+          uuid = "7b1a3c52-1c2e-4a6f-9e0b-2f7d0f2c1a03";
+        }
+        {
+          target = "system1";
+          partition = "kernel1";
+          uuid = "7b1a3c52-1c2e-4a6f-9e0b-2f7d0f2c1a04";
+        }
+      ];
+
       forSystems = nixpkgs.lib.genAttrs [
         "x86_64-linux"
         "aarch64-linux"
@@ -95,8 +113,9 @@
               patches = [
                 ./pkgs/barebox/0001-ARM-dts-imx8mm-evk-add-QEMU-variant.patch
                 ./pkgs/barebox/0002-Makefile-fix-security_-config-configurator-targets.patch
+                ./pkgs/barebox/0003-ARM-dts-imx8mm-evk-qemu-add-A-B-boot-state.patch
               ];
-              configFragments = [ ./config/barebox/bootchain.config ];
+              defconfig = ./config/barebox/imx8mm-evk-qemu_defconfig;
               extraConfig = ''CONFIG_SECURITY_POLICY_INIT="${policy}"'';
               defaultEnv = ./config/env/barebox;
               policies = map policyFile policies;
@@ -114,10 +133,11 @@
               ];
             };
 
-          # config/policies/*.sconfig after `make security_olddefconfig`; copy
-          # the result back into the repository after changing a policy or
-          # bumping barebox.
-          policies-normalized = (bareboxFor defaultPolicy).override { normalizePoliciesOnly = true; };
+          # config/policies/*.sconfig after `make security_olddefconfig` and
+          # config/barebox/*_defconfig after `make savedefconfig`; copy the
+          # result back into the repository after changing a policy or the
+          # barebox configuration, or after bumping barebox.
+          configs-normalized = (bareboxFor defaultPolicy).override { normalizeConfigsOnly = true; };
 
           linux = pkgs.callPackage ./pkgs/debian-kernel.nix { inherit (versions) debianKernel; };
           initramfs = pkgs.callPackage ./pkgs/initramfs.nix { inherit (versions) busybox; };
@@ -130,30 +150,48 @@
           # fixups QEMU's board code would apply are done here.
           linuxDtb = pkgs.callPackage ./pkgs/qemu-dtb-fixups.nix { dtb = "${linux}/imx8mm-evk.dtb"; };
 
-          fit-linux = pkgs.callPackage ./pkgs/fit-image.nix {
-            name = "linux";
-            its = ./config/fit/linux.its;
-            substitutions = {
-              KERNEL = "${linuxGz}/Image.gz";
-              DTB = "${linuxDtb}/imx8mm-evk.dtb";
-              INITRAMFS = "${initramfs}/initramfs.cpio.gz";
+          # One signed FIT per slot. Both hold the same kernel, device tree
+          # and initramfs and differ only in their description, which barebox
+          # prints when it opens the image ("Opened FIT image: ...").
+          fitFor =
+            slot:
+            pkgs.callPackage ./pkgs/fit-image.nix {
+              name = "linux-${slot.target}";
+              its = ./config/fit/linux.its;
+              substitutions = {
+                KERNEL = "${linuxGz}/Image.gz";
+                DTB = "${linuxDtb}/imx8mm-evk.dtb";
+                INITRAMFS = "${initramfs}/initramfs.cpio.gz";
+                SLOT = slot.target;
+              };
+              keys = ./keys;
             };
-            keys = ./keys;
-          };
 
           # The SD card. barebox's device tree reserves the first MiB for the
           # raw bootloader image (33 KiB, where the boot ROM looks) and the raw
-          # barebox environment; the signed FIT lives in a GPT partition.
+          # barebox environment; the state and the two signed FITs live in GPT
+          # partitions after it.
           disk-image = pkgs.callPackage ./pkgs/disk-image.nix {
+            sizeMiB = 128;
             diskUuid = "7b1a3c52-1c2e-4a6f-9e0b-2f7d0f2c1a01";
             partitions = [
               {
-                name = "kernel";
-                image = "${fit-linux}/linux.fit";
-                sizeMiB = 48;
-                uuid = "7b1a3c52-1c2e-4a6f-9e0b-2f7d0f2c1a03";
+                # found by its type GUID, not by name: barebox looks up
+                # BAREBOX_STATE_PARTITION_GUID on the device the state node's
+                # "backend" phandle points at. Shipped zeroed, barebox
+                # initializes it from the defaults in the device tree.
+                name = "state";
+                type = "4778ed65-bf42-45fa-9c5b-287a1dc4aab1";
+                sizeMiB = 1;
+                uuid = "7b1a3c52-1c2e-4a6f-9e0b-2f7d0f2c1a02";
               }
-            ];
+            ]
+            ++ map (slot: {
+              name = slot.partition;
+              image = "${fitFor slot}/linux-${slot.target}.fit";
+              sizeMiB = 48;
+              inherit (slot) uuid;
+            }) slots;
           };
 
           # Everything the labgrid environment needs, in one directory
@@ -166,7 +204,9 @@
               ln -s ${disk-image}/disk.img $out/disk.img
               # for reference / real hardware, not used under QEMU
               ln -s ${bareboxFor policy}/barebox-nxp-imx8mm-evk.img $out/barebox-nxp-imx8mm-evk.img
-              ln -s ${fit-linux}/linux.fit $out/linux.fit
+              ${lib.concatMapStringsSep "\n" (
+                slot: "ln -s ${fitFor slot}/linux-${slot.target}.fit $out/linux-${slot.target}.fit"
+              ) slots}
             '';
 
           runFor =
@@ -214,17 +254,19 @@
             {
               inherit
                 toolchain
-                policies-normalized
+                configs-normalized
                 linux
                 linuxDtb
                 initramfs
-                fit-linux
                 disk-image
                 qemu
                 ;
               labgrid = pythonEnv;
               default = imagesFor defaultPolicy;
             }
+            // lib.listToAttrs (
+              map (slot: lib.nameValuePair "fit-linux-${slot.target}" (fitFor slot)) slots
+            )
             // prefixed "barebox" (perPolicy bareboxFor)
             // prefixed "images" (perPolicy imagesFor)
             // prefixed "run" (perPolicy runFor)

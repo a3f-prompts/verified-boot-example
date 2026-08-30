@@ -1,0 +1,5 @@
+#!/bin/sh
+# Boot target "system1" (slot B): same as "system0", but from the second
+# kernel partition. bootchooser falls back to this one when system0 has run
+# out of remaining attempts, or when its priority is raised above system0's.
+global.bootm.image=/dev/mmc1.kernel1

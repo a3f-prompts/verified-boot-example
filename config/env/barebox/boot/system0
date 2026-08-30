@@ -1,0 +1,6 @@
+#!/bin/sh
+# Boot target "system0" (slot A): the signed Linux FIT image on the raw GPT
+# partition labelled "kernel0". Started by the bootchooser, which is
+# nv.boot.default; whether an unsigned image would be accepted is up to the
+# active security policy (SCONFIG_BOOT_UNSIGNED_IMAGES).
+global.bootm.image=/dev/mmc1.kernel0

@@ -1,0 +1,206 @@
+# Dedicated defconfig for the reference bootchain on QEMU's imx8mm-evk.
+#
+# Same driver set as barebox' imx_v8_defconfig, but with only the i.MX8MM EVK
+# board enabled instead of every i.MX8/i.MX9 board, plus the options this
+# bootchain needs (see the comments below).
+#
+# Everything not mentioned here is a barebox default. To regenerate the file
+# after changing an option, run `nix build .#configs-normalized` and merge
+# result/defconfig back in; that is plain `make savedefconfig` output, so the
+# comments and the explicit "is not set" lines have to be re-added by hand.
+#
+# The Nix expression sets four more options out of tree, per build variant:
+# CONFIG_CRYPTO_PUBLIC_KEYS, CONFIG_SECURITY_POLICY_PATH,
+# CONFIG_SECURITY_POLICY_INIT and CONFIG_DEFAULT_ENVIRONMENT_PATH.
+
+CONFIG_ARCH_IMX=y
+CONFIG_MACH_NXP_IMX8MM_EVK=y
+CONFIG_64BIT=y
+CONFIG_ARM_OPTIMZED_STRING_FUNCTIONS=y
+CONFIG_NAME="imx8mm-evk-qemu_defconfig"
+
+# Generic device tree second-stage image (images/barebox-dt-2nd.img). QEMU's
+# imx8mm-evk machine has no loadable boot ROM, so this is what -kernel boots
+# (see README, "The PBL and the boot ROM"). MACH_NXP_IMX8MM_EVK already
+# selects it; spelled out because the emulated chain depends on it.
+CONFIG_BOARD_GENERIC_DT=y
+
+CONFIG_MMU=y
+CONFIG_KALLSYMS=y
+CONFIG_HUSH_FANCY_PROMPT=y
+CONFIG_AUTO_COMPLETE=y
+CONFIG_MENU=y
+CONFIG_BOOTM_SHOW_TYPE=y
+CONFIG_BOOTM_VERBOSE=y
+CONFIG_BOOTM_INITRD=y
+CONFIG_BOOTM_OFTREE_UIMAGE=y
+
+# FIT images with signature verification; the public key is compiled in via
+# CONFIG_CRYPTO_PUBLIC_KEYS (set by the Nix expression). Whether *unsigned*
+# images may be booted is decided by the active security policy
+# (SCONFIG_BOOT_UNSIGNED_IMAGES), not forced at build time.
+CONFIG_BOOTM_FITIMAGE=y
+CONFIG_BOOTM_FITIMAGE_SIGNATURE=y
+# CONFIG_BOOTM_FORCE_SIGNED_IMAGES is not set
+CONFIG_CRYPTO_RSA=y
+CONFIG_CRYPTO_BUILTIN_KEYS=y
+
+CONFIG_BLSPEC=y
+CONFIG_CONSOLE_ACTIVATE_NONE=y
+CONFIG_PBL_CONSOLE=y
+CONFIG_CONSOLE_RATP=y
+CONFIG_PARTITION_DISK_EFI=y
+CONFIG_DEFAULT_ENVIRONMENT_GENERIC_NEW=y
+CONFIG_DEFAULT_ENVIRONMENT_GENERIC_NEW_SECURITY_POLICY=y
+
+# A/B boot. bootchooser picks the boot target (config/env/barebox/boot/system*)
+# and keeps its priorities and remaining-attempt counters in a barebox state
+# instance stored on the SD card; the state layout is a device tree node, see
+# pkgs/barebox/0003-*.patch, its runtime configuration lives in
+# config/env/barebox/nv/bootchooser.*. RESET_SOURCE lets bootchooser
+# distinguish a power-on reset from a watchdog reset.
+CONFIG_STATE=y
+CONFIG_BOOTCHOOSER=y
+CONFIG_RESET_SOURCE=y
+CONFIG_CMD_DMESG=y
+CONFIG_LONGHELP=y
+CONFIG_CMD_IOMEM=y
+CONFIG_CMD_IMD=y
+CONFIG_CMD_MEMINFO=y
+CONFIG_CMD_REGULATOR=y
+CONFIG_CMD_MMC_EXTCSD=y
+CONFIG_CMD_GO=y
+CONFIG_CMD_RESET=y
+CONFIG_CMD_UIMAGE=y
+CONFIG_CMD_BOOTCHOOSER=y
+CONFIG_CMD_PARTITION=y
+CONFIG_CMD_EXPORT=y
+CONFIG_CMD_LOADENV=y
+CONFIG_CMD_PRINTENV=y
+CONFIG_CMD_MAGICVAR=y
+CONFIG_CMD_MAGICVAR_HELP=y
+CONFIG_CMD_SAVEENV=y
+CONFIG_CMD_FILETYPE=y
+CONFIG_CMD_LN=y
+CONFIG_CMD_MD5SUM=y
+CONFIG_CMD_UNCOMPRESS=y
+CONFIG_CMD_LET=y
+CONFIG_CMD_MSLEEP=y
+CONFIG_CMD_READF=y
+CONFIG_CMD_SLEEP=y
+CONFIG_CMD_DHCP=y
+CONFIG_CMD_MIITOOL=y
+CONFIG_CMD_PING=y
+CONFIG_CMD_ECHO_E=y
+CONFIG_CMD_EDIT=y
+CONFIG_CMD_MENU=y
+CONFIG_CMD_MENU_MANAGEMENT=y
+CONFIG_CMD_MENUTREE=y
+CONFIG_CMD_READLINE=y
+CONFIG_CMD_TIMEOUT=y
+CONFIG_CMD_CRC=y
+CONFIG_CMD_CRC_CMP=y
+CONFIG_CMD_MEMTEST=y
+CONFIG_CMD_MM=y
+CONFIG_CMD_CLK=y
+CONFIG_CMD_DETECT=y
+CONFIG_CMD_FLASH=y
+CONFIG_CMD_GPIO=y
+CONFIG_CMD_LED=y
+CONFIG_CMD_SPI=y
+CONFIG_CMD_LED_TRIGGER=y
+CONFIG_CMD_USBGADGET=y
+CONFIG_CMD_WD=y
+
+# Let the shell inspect the compiled-in keyrings ("keys" command)
+CONFIG_CMD_KEYS=y
+CONFIG_CMD_BAREBOX_UPDATE=y
+CONFIG_CMD_OF_NODE=y
+CONFIG_CMD_OF_PROPERTY=y
+CONFIG_CMD_OFTREE=y
+CONFIG_CMD_TIME=y
+CONFIG_NET=y
+CONFIG_NET_NETCONSOLE=y
+CONFIG_DEEP_PROBE_DEFAULT=y
+CONFIG_OF_BAREBOX_DRIVERS=y
+CONFIG_SERIAL_DEV_BUS=y
+CONFIG_DRIVER_SERIAL_LPUART32=y
+CONFIG_DRIVER_NET_DESIGNWARE_IMX8=y
+CONFIG_DRIVER_NET_FEC_IMX=y
+CONFIG_DP83867_PHY=y
+CONFIG_MICREL_PHY=y
+CONFIG_REALTEK_PHY=y
+CONFIG_NET_DSA_MV88E6XXX=y
+CONFIG_MDIO_BITBANG=y
+CONFIG_MDIO_GPIO=y
+CONFIG_MDIO_BUS_MUX_GPIO=y
+CONFIG_NET_USB=y
+CONFIG_NET_USB_ASIX=y
+CONFIG_NET_USB_SMSC95XX=y
+CONFIG_DRIVER_SPI_IMX=y
+CONFIG_SPI_NXP_FLEXSPI=y
+CONFIG_MTD=y
+CONFIG_MTD_DATAFLASH=y
+CONFIG_MTD_M25P80=y
+CONFIG_USB_HOST=y
+CONFIG_USB_IMX_CHIPIDEA=y
+CONFIG_USB_EHCI=y
+CONFIG_USB_STORAGE=y
+CONFIG_USB_GADGET=y
+CONFIG_USB_GADGET_SERIAL=y
+CONFIG_USB_GADGET_FASTBOOT=y
+CONFIG_MCI=y
+
+# Probe SD/eMMC at startup so /dev/mmc1.<label> exists by the time the boot
+# command looks for it; barebox otherwise defers card detection to first use.
+CONFIG_MCI_STARTUP=y
+CONFIG_MCI_MMC_BOOT_PARTITIONS=y
+CONFIG_MCI_IMX_ESDHC=y
+
+# Workaround for a QEMU bug: its SDHCI model starts an SDMA transfer when the
+# SDMA System Address register is written with a non-zero block count, so
+# barebox's setup of a transfer eats a block of it and the last sector of
+# every 128-sector transfer is lost (see README, "Known emulation issues").
+CONFIG_MCI_IMX_ESDHC_PIO=y
+CONFIG_RAVE_SP_CORE=y
+CONFIG_LED=y
+CONFIG_LED_GPIO=y
+CONFIG_LED_GPIO_OF=y
+CONFIG_LED_TRIGGERS=y
+CONFIG_EEPROM_AT25=y
+CONFIG_WATCHDOG=y
+CONFIG_WATCHDOG_POLLER=y
+CONFIG_WATCHDOG_IMX=y
+CONFIG_WATCHDOG_IMXULP=y
+CONFIG_RAVE_SP_WATCHDOG=y
+CONFIG_NVMEM_SNVS_LPGPR=y
+CONFIG_RAVE_SP_EEPROM=y
+CONFIG_REGULATOR=y
+CONFIG_REGULATOR_FIXED=y
+CONFIG_RTC_CLASS=y
+CONFIG_GENERIC_PHY=y
+CONFIG_USB_NOP_XCEIV=y
+CONFIG_FS_EXT4=y
+CONFIG_FS_TFTP=y
+CONFIG_FS_NFS=y
+CONFIG_FS_FAT=y
+CONFIG_FS_FAT_WRITE=y
+CONFIG_FS_RATP=y
+
+# Runtime security policies. The policies themselves live in
+# config/policies/*.sconfig and are registered via CONFIG_SECURITY_POLICY_PATH;
+# CONFIG_SECURITY_POLICY_INIT (set per build variant) selects the active one.
+# Policy transitions are deliberately not exposed to the shell
+# (CMD_SCONFIG_MODIFY selects HAS_INSECURE_DEFAULTS).
+CONFIG_SECURITY_POLICY=y
+# CONFIG_SECURITY_POLICY_DEFAULT_PERMISSIVE is not set
+CONFIG_CMD_SCONFIG=y
+# CONFIG_CMD_SCONFIG_MODIFY is not set
+
+# The FIT hashes and signatures use SHA-256; imx_v8_defconfig ships no
+# SHA-256 digest and FITIMAGE_SIGNATURE does not select one.
+CONFIG_DIGEST_SHA256_GENERIC=y
+
+# The kernel inside the FIT image is gzip-compressed.
+CONFIG_ZLIB=y
+# CONFIG_MISSING_FIRMWARE_ERROR is not set

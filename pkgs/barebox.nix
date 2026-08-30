@@ -1,6 +1,6 @@
-# Generic barebox builder: defconfig + Kconfig fragments + security policies +
-# public keys + environment overlay. The per-policy variants of the bootchain
-# are instances of this.
+# Generic barebox builder: defconfig + security policies + public keys +
+# environment overlay. The per-policy variants of the bootchain are instances
+# of this.
 {
   lib,
   stdenv,
@@ -19,10 +19,10 @@
   src,
   version,
   pname ? "barebox",
+  # Either the name of an in-tree defconfig, or a path to a defconfig file
+  # that is copied into arch/arm/configs/ before being used.
   defconfig ? "imx_v8_defconfig",
-  # Kconfig fragments merged on top of the defconfig, in order
-  configFragments ? [ ],
-  # Extra literal .config lines appended after the fragments
+  # Extra literal .config lines appended after the defconfig
   extraConfig ? "",
   patches ? [ ],
   # .sconfig security policy files to compile in and register
@@ -41,10 +41,13 @@
   # barebox insists that .sconfig files are complete ("up to date"); the
   # build normalizes them with `make security_olddefconfig` and fails if that
   # changed anything, so that the checked-in policies stay canonical. Set
-  # this to only run the configure step and install the normalized policies.
-  normalizePoliciesOnly ? false,
+  # this to only run the configure step and install the canonical form of the
+  # policies and of the defconfig (`make savedefconfig`).
+  normalizeConfigsOnly ? false,
 }:
 let
+  defconfigIsFile = !builtins.isString defconfig;
+  defconfigName = if defconfigIsFile then baseNameOf defconfig else defconfig;
   policyPath = lib.concatMapStringsSep " " (p: "security/${baseNameOf p}") policies;
   keySpec = lib.concatMapStringsSep " " (k: "keyring=fit,fit-hint=${k.hint}:${k.crt}") publicKeys;
 in
@@ -85,6 +88,9 @@ stdenv.mkDerivation {
   postPatch = ''
     patchShebangs scripts
   ''
+  + lib.optionalString defconfigIsFile ''
+    cp ${defconfig} arch/arm/configs/${defconfigName}
+  ''
   + lib.concatMapStringsSep "\n" (p: "cp ${p} security/${baseNameOf p}\n") policies
   + lib.optionalString (defaultEnv != null) ''
     # scripts/genenv copies and later deletes the environment tree, which
@@ -107,9 +113,12 @@ stdenv.mkDerivation {
   configurePhase = ''
     runHook preConfigure
 
-    make $makeFlags ${defconfig}
-    ${lib.optionalString (configFragments != [ ]) ''
-      scripts/kconfig/merge_config.sh -m .config ${lib.concatStringsSep " " configFragments}
+    make $makeFlags ${defconfigName}
+    ${lib.optionalString normalizeConfigsOnly ''
+      # before the out-of-tree options below are appended, they are store
+      # paths and have no business in a defconfig
+      make $makeFlags savedefconfig
+      mv defconfig defconfig.normalized
     ''}
     cat >> .config <<CONFIG
     ${lib.optionalString (publicKeys != [ ]) ''CONFIG_CRYPTO_PUBLIC_KEYS="${keySpec}"''}
@@ -125,9 +134,9 @@ stdenv.mkDerivation {
       ${lib.concatMapStringsSep "\n" (p: ''
         diff -u ${p} security/${baseNameOf p} || stale=1
       '') policies}
-      if [ "$stale" = 1 ] && [ -z "$normalizePoliciesOnly" ]; then
+      if [ "$stale" = 1 ] && [ -z "$normalizeConfigsOnly" ]; then
         echo "*** the security policies above are not up to date." >&2
-        echo "*** Run 'nix build .#policies-normalized' and copy result/*.sconfig to config/policies/." >&2
+        echo "*** Run 'nix build .#configs-normalized' and copy result/*.sconfig to config/policies/." >&2
         exit 1
       fi
     ''}
@@ -135,12 +144,15 @@ stdenv.mkDerivation {
     runHook postConfigure
   '';
 
-  dontBuild = normalizePoliciesOnly;
+  dontBuild = normalizeConfigsOnly;
 
   installPhase = ''
     runHook preInstall
     mkdir -p $out
-    ${lib.optionalString (!normalizePoliciesOnly) ''
+    ${lib.optionalString normalizeConfigsOnly ''
+      cp defconfig.normalized $out/defconfig
+    ''}
+    ${lib.optionalString (!normalizeConfigsOnly) ''
       for f in ${lib.concatStringsSep " " artifacts}; do
         cp "$f" $out/
       done
@@ -153,14 +165,14 @@ stdenv.mkDerivation {
   passthru = {
     inherit
       defconfig
-      configFragments
+      defconfigName
       policies
       publicKeys
       ;
     dummyFirmware = firmware == null;
   };
 
-  inherit normalizePoliciesOnly;
+  inherit normalizeConfigsOnly;
 
   meta = {
     description = "barebox bootloader (${pname})";

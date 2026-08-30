@@ -2,11 +2,15 @@
  * Final payload: Debian's arm64 kernel, the upstream imx8mm-evk device tree
  * and a busybox initramfs, signed with the development key. barebox proper
  * verifies the configuration signature before booting.
+ *
+ * One image of this is built per A/B slot. They only differ in the @SLOT@
+ * description, so that the boot log tells apart which of the two kernel
+ * partitions was read.
  */
 /dts-v1/;
 
 / {
-	description = "Linux for QEMU imx8mm-evk";
+	description = "Linux for QEMU imx8mm-evk, slot @SLOT@";
 	#address-cells = <1>;
 
 	images {
@@ -50,7 +54,7 @@
 		default = "conf-1";
 
 		conf-1 {
-			description = "Linux + initramfs";
+			description = "Linux + initramfs, slot @SLOT@";
 			kernel = "kernel";
 			fdt = "fdt";
 			ramdisk = "initramfs";

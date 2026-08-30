@@ -6,10 +6,12 @@ States, in order:
   off      QEMU not running
   booted   barebox banner seen (PBL has started barebox proper)
   barebox  interactive barebox shell (needs a policy with console input)
-  linux    barebox verified and booted the FIT; busybox initramfs shell reached
+  linux    bootchooser picked a slot, barebox verified and booted its FIT;
+           busybox initramfs shell reached
 
 The console output that led to each state is kept in `log` so tests can
-make assertions about what happened along the way.
+make assertions about what happened along the way; `booted_slot` is the
+bootchooser target the `linux` transition went through.
 """
 
 import enum
@@ -21,6 +23,10 @@ from labgrid import step, target_factory
 from labgrid.strategy import Strategy, StrategyError
 
 BAREBOX_BANNER = r"barebox 20\d\d\.\d\d\.\d[^\r\n]*"
+# the bootchooser boots its chosen target as a nested boot entry
+BOOT_ENTRY = r"Booting entry '(system\d)'"
+# each slot's FIT carries its name in the description
+FIT_OPENED = r"Opened FIT image: [^\r\n]*slot (system\d)"
 SIGNATURE_OK = r"Key\s+[0-9a-f]+ \([^)]*\) -> signature OK"
 INITRAMFS_REACHED = r"initramfs reached"
 
@@ -90,8 +96,10 @@ class BootchainStrategy(Strategy):
             # from here on the console is no longer at a barebox prompt: if
             # anything below fails, the next transition has to start over
             self.status = Status.unknown
-            # nv.bootm.verbose=1 makes the autoboot path print the FIT
-            # verification result just like an interactive "boot -v"
+            self._expect(BOOT_ENTRY, 120, "boot-entry")
+            # nv.bootm.verbose=1 makes the autoboot path print which FIT was
+            # opened and its verification result, just like "boot -v"
+            self._expect(FIT_OPENED, 120, "fit")
             self._expect(SIGNATURE_OK, 120, "verify")
             self._expect(r"Linux version [^\r\n]*", 120, "linux-banner")
             self._expect(INITRAMFS_REACHED, 300, "initramfs")
@@ -101,6 +109,18 @@ class BootchainStrategy(Strategy):
             raise StrategyError(f"no transition found from {self.status} to {status}")
 
         self.status = status
+
+    @property
+    def booted_slot(self):
+        """The bootchooser target the last `linux` transition booted."""
+        m = re.search(BOOT_ENTRY, self.log.get("boot-entry", ""))
+        return m.group(1) if m else None
+
+    @property
+    def booted_fit_slot(self):
+        """The slot named in the description of the FIT that was opened."""
+        m = re.search(FIT_OPENED, self.log.get("fit", ""))
+        return m.group(1) if m else None
 
     def linux_run(self, command, timeout=30):
         """Run a command in the initramfs shell and return its output."""
@@ -112,6 +132,8 @@ class BootchainStrategy(Strategy):
         _, before, _, _ = self.console.expect(r"__bootchain_done__", timeout=timeout)
         text = before.decode("utf-8", "replace") if isinstance(before, bytes) else before
         text = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text)  # terminal escape sequences
-        # drop the echoed command line
-        text = text.split("\n", 1)[1] if "\n" in text else ""
-        return text.strip()
+        # Everything up to and including the echo of the line we just sent is
+        # the shell's echo plus whatever the previous command left in the
+        # buffer (the newline after its marker, a prompt, ...). Anchoring on
+        # the echo rather than on the first line keeps that leftover out.
+        return text.rpartition("_done__")[2].strip()

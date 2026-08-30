@@ -31,7 +31,7 @@ def main():
         "-s",
         "--state",
         default=os.environ.get("LG_STATE"),
-        help="strategy state to reach before attaching, e.g. stage2, barebox or linux "
+        help="strategy state to reach before attaching, e.g. booted, barebox or linux "
         "(default: just start QEMU)",
     )
     parser.add_argument(

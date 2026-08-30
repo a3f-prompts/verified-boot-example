@@ -4,10 +4,11 @@ A reproducible, fully virtualized reference bootchain for security assessment
 of [barebox](https://barebox.org):
 
 ```
-QEMU imx8mm-evk ──-kernel──▶ barebox PBL ──▶ barebox proper ──boot /dev/mmc1.kernel──▶ Linux
-                             (stands in for      (security policy        signed FIT on a
-                              what the boot ROM   lockdown/factory/devel)  raw GPT partition
-                              loads)
+                                                            ┌─bootchooser─▶ /dev/mmc1.kernel0 ─┐
+QEMU imx8mm-evk ──-kernel──▶ barebox PBL ──▶ barebox proper ─┤  (A/B state  │                  ├─▶ Linux
+                             (stands in for  (security policy│  on the card)└▶ /dev/mmc1.kernel1┘
+                              what the boot    lockdown/                       signed FIT on a
+                              ROM loads)       factory/devel)                  raw GPT partition
 ```
 
 Every component is pinned to an exact version and nothing is built from
@@ -15,7 +16,7 @@ source except barebox itself and the images around it:
 
 | Component                | Version                  | Pinned by                       |
 |--------------------------|--------------------------|---------------------------------|
-| barebox                  | v2026.08.0 (+2 patches)  | `flake.lock` (`barebox-src`)    |
+| barebox                  | v2026.08.0 (+3 patches)  | `flake.lock` (`barebox-src`)    |
 | aarch64 cross toolchain  | GCC 15.2.0, kernel.org crosstool (binary) | `versions.nix` |
 | QEMU                     | ≥ 11.1.0 (`imx8mm-evk`)  | `flake.lock` (`nixpkgs`), asserted in `flake.nix` |
 | mkimage (`ubootTools`)   | 2026.07                  | `flake.lock` (`nixpkgs`)        |
@@ -43,6 +44,18 @@ Interactive use needs a policy that permits console input; the default
 (`factory`) does, `lockdown` does not. With `lockdown` you can watch the chain
 boot straight into Linux and then use the initramfs shell.
 
+At the barebox prompt, the A/B state is what decides where the chain goes:
+
+```sh
+bootchooser -i                # priorities and remaining attempts of both slots
+state; devinfo state          # the variable set behind them
+bootchooser -p 30 system1     # make slot B win the next boot
+boot                          # ... and take it
+```
+
+The SD card is opened in QEMU's snapshot mode, so such changes are written to
+the card but discarded when QEMU exits.
+
 Without Nix on the host, everything also runs from the `nixos/nix` container:
 
 ```sh
@@ -57,17 +70,17 @@ podman run --rm -it -v bvbe-nix:/nix -v "$PWD":/work -w /work \
 flake.nix                 wiring: barebox variants, FIT image, disk image, run/test apps, checks
 versions.nix              hashes/URLs of all prebuilt binaries (toolchain, kernel, busybox)
 pkgs/toolchain.nix        kernel.org crosstool tarball, patchelf'ed (no compiler build)
-pkgs/barebox.nix          generic barebox builder (defconfig + fragments + policies + keys + env)
-pkgs/barebox/*.patch      barebox patches: imx8mm-evk-qemu.dts, security_%config Makefile fix
+pkgs/barebox.nix          generic barebox builder (defconfig + policies + keys + env)
+pkgs/barebox/*.patch      barebox patches: imx8mm-evk-qemu.dts, security_%config Makefile fix, A/B state node
 pkgs/debian-kernel.nix    Image + imx8mm-evk.dtb out of the Debian .deb
 pkgs/qemu-dtb-fixups.nix  the DTB fixups QEMU's board code would apply (Linux' DTB comes from the FIT)
 pkgs/initramfs.nix        busybox initramfs
 pkgs/fit-image.nix        mkimage -f its -k keys
-pkgs/disk-image.nix       GPT SD card image with the "kernel" partition
-config/barebox/*.config   Kconfig fragment on top of imx_v8_defconfig
+pkgs/disk-image.nix       GPT SD card image with the "state" and "kernel0"/"kernel1" partitions
+config/barebox/*_defconfig  barebox configuration (a full defconfig, not a fragment)
 config/policies/*.sconfig security policies: lockdown, factory, devel
-config/env/barebox        environment overlay: boot entry "fit", nv variables (boot target, bootargs)
-config/fit/*.its          FIT image source (Linux)
+config/env/barebox        environment overlay: boot entries "system0"/"system1", nv variables (bootchooser, bootargs)
+config/fit/*.its          FIT image source (Linux), instantiated once per slot
 keys/                     development signing key (see keys/README.md)
 labgrid/                  labgrid environment + strategy
 scripts/run.py            interactive runner (labgrid examples/qemu-run.py, extended)
@@ -80,31 +93,74 @@ tests/                    pytest suite driving the chain through labgrid
 |---------------------------------|--------------------------------------------------------------|
 | `toolchain`                     | aarch64-linux GCC                                            |
 | `barebox-<policy>`              | `barebox-dt-2nd.img` (what QEMU boots), `barebox-nxp-imx8mm-evk.img` (the real ROM-loadable image, see below), `imx8mm-evk-qemu.dtb`; all three policies compiled in, `<policy>` active |
-| `fit-linux`                     | signed FIT: kernel (gzip) + DTB + initramfs                  |
-| `disk-image`                    | 64 MiB GPT SD-card image                                     |
+| `fit-linux-<slot>`              | signed FIT: kernel (gzip) + DTB + initramfs, one per A/B slot |
+| `disk-image`                    | 128 MiB GPT SD-card image                                    |
 | `images-<policy>` (default)     | directory with everything the labgrid environment references |
 | `run-<policy>`, `test-<policy>` | wrappers setting `$LG_IMAGES` around `scripts/run.py` / pytest |
 | `checks.<policy>`               | boot test in the Nix sandbox (QEMU TCG)                      |
-| `policies-normalized`           | `config/policies/*.sconfig` in canonical form (see "Updating pins") |
+| `configs-normalized`            | `config/policies/*.sconfig` and the defconfig in canonical form (see "Updating pins") |
 | `devShells.default`             | toolchain, QEMU, labgrid, mkimage, dtc, … with `$CROSS_COMPILE`, `$LG_ENV`, `$LG_IMAGES` set |
 
-`<policy>` is one of `lockdown`, `factory`, `devel`.
+`<policy>` is one of `lockdown`, `factory`, `devel`; `<slot>` is `system0` or
+`system1`.
 
 ## The bootchain in detail
 
-**barebox** is one build per policy (`barebox-<policy>`): `imx_v8_defconfig`
-plus `config/barebox/bootchain.config`, with all three policies from
-`config/policies/` compiled in and `CONFIG_SECURITY_POLICY_INIT=<policy>`.
-The public key is compiled in
+**barebox** is one build per policy (`barebox-<policy>`):
+`config/barebox/imx8mm-evk-qemu_defconfig` — a dedicated defconfig, derived
+from barebox' `imx_v8_defconfig` but with only the i.MX8MM EVK board — with
+all three policies from `config/policies/` compiled in and
+`CONFIG_SECURITY_POLICY_INIT=<policy>`. The public key is compiled in
 (`CONFIG_CRYPTO_PUBLIC_KEYS="keyring=fit,fit-hint=dev:…/dev.crt"`). Unsigned
 images are only allowed if the active policy says so
 (`SCONFIG_BOOT_UNSIGNED_IMAGES`, set in `devel` only). After a short autoboot
-timeout barebox proper runs the boot entry `fit` (`nv.boot.default`,
-`config/env/barebox/boot/fit`), i.e. `bootm /dev/mmc1.kernel`, the signed FIT
-on the raw partition, verifying the configuration signature
-(`sha256,rsa4096`, key name hint `dev`; kernel, fdt and ramdisk hashes are
-covered) before starting Linux. `nv.bootm.verbose=1` makes it print the
+timeout barebox proper runs the boot entry `bootchooser` (`nv.boot.default`),
+which picks a slot and runs `config/env/barebox/boot/<slot>`, i.e.
+`bootm /dev/mmc1.kernel0` or `bootm /dev/mmc1.kernel1`, the signed FIT on the
+raw partition, verifying the configuration signature (`sha256,rsa4096`, key
+name hint `dev`; kernel, fdt and ramdisk hashes are covered) before starting
+Linux. `nv.bootm.verbose=1` makes it print which image it opened and the
 verification result on every boot, not only for `boot -v`.
+
+**A/B boot.** Which of the two slots is booted is decided by barebox'
+[bootchooser](https://www.barebox.org/doc/latest/user/bootchooser.html), whose
+static configuration is in `config/env/barebox/nv/bootchooser.*`:
+
+| Variable                                | Value              |
+|-----------------------------------------|--------------------|
+| `bootchooser.targets`                   | `system0 system1`  |
+| `bootchooser.state_prefix`              | `state.bootstate`  |
+| `bootchooser.system0.default_priority`  | 20                 |
+| `bootchooser.system1.default_priority`  | 10                 |
+| `bootchooser.system{0,1}.default_attempts` | 3               |
+| `bootchooser.retry`                     | 1                  |
+| `bootchooser.reset_attempts`            | `all-zero`         |
+| `bootchooser.reset_priorities`          | `all-zero`         |
+
+The variable data it works on — a `priority` and a `remaining_attempts`
+counter per target, plus `last_chosen` — lives in a barebox
+[state](https://www.barebox.org/doc/latest/user/state.html) variable set
+described by the device tree node added by `pkgs/barebox/0003-*.patch`. Every
+boot decrements the counter of the chosen target and writes the state back to
+the card, so a slot that never comes up far enough to have its counter reset
+(`bootchooser -s` in barebox, `barebox-state -s bootstate.system0.remaining_attempts=3`
+from Linux userspace) is retried three times and then skipped in favour of the
+other one. The two `all-zero` resets keep the demo from ending up with nothing
+left to boot: once every target is exhausted or disabled, the defaults from
+the device tree are restored. barebox also puts `bootchooser.active=<target>`
+on the kernel command line, and copies the state description into the device
+tree it hands to Linux so that userspace sees the same variable set.
+
+The `state` backend is the *device*, not a fixed partition: barebox resolves a
+block device backend to the GPT partition whose type GUID is
+`4778ed65-bf42-45fa-9c5b-287a1dc4aab1`. Its storage type is `direct`, the one
+for backends that need no erase — three copies of the variable set are written
+side by side, `backend-stridesize` (0x40) bytes apart, each 8 bytes of bucket
+meta data plus a 16-byte `raw` header plus 20 bytes of data.
+
+The two slots hold the same kernel, device tree and initramfs; only the FIT
+`description` differs (`… slot system0` / `… slot system1`), so the boot log
+says which of the two partitions was read.
 
 **The SD card** (`disk-image`) is a raw GPT image on uSDHC2 (QEMU
 `-drive if=sd,bus=1,unit=0`), the SD slot of the real board. barebox's own
@@ -112,14 +168,18 @@ device tree reserves the first MiB as fixed partitions — `barebox` (0–896 Ki
 where the boot ROM expects the bootloader image at 33 KiB) and
 `barebox-environment` (896 KiB–1 MiB, the raw environment barebox loads if
 the policy allows `SCONFIG_ENVIRONMENT_LOAD`) — so the GPT partition table
-and the FIT partition follow after that:
+and the payload partitions follow after that:
 
 | Partition | Offset | Size   | Content                                       |
 |-----------|--------|--------|-----------------------------------------------|
-| `kernel`  | 1 MiB  | 48 MiB | `linux.fit`: Debian kernel + `imx8mm-evk.dtb` + initramfs |
+| `state`   | 1 MiB  | 1 MiB  | A/B boot state; shipped zeroed, barebox initializes it from the defaults in its device tree |
+| `kernel0` | 2 MiB  | 48 MiB | `linux-system0.fit`: Debian kernel + `imx8mm-evk.dtb` + initramfs |
+| `kernel1` | 50 MiB | 48 MiB | `linux-system1.fit`: the same, for the second slot |
 
 GPT partition *labels* are what barebox exposes as `/dev/mmc1.<label>`. The
-partition holds the bare FIT, no filesystem.
+kernel partitions hold the bare FIT, no filesystem. QEMU opens the image in
+snapshot mode (the Nix store is read-only), so barebox' writes to the state
+partition survive within a QEMU run but not across one.
 
 ### The PBL and the boot ROM
 
@@ -165,6 +225,9 @@ stubbed and simply do not probe. `pkgs/barebox/0002-*`
 fixes the `make security_%config` policy configurators in barebox v2026.08.0
 (they were dispatched to Kconfig and, once reached, collected no policies);
 the build relies on `security_olddefconfig` to normalize the policy files.
+`pkgs/barebox/0003-*` adds the A/B state node to the QEMU device tree; it is
+a property of this bootchain rather than of the machine, hence a patch of its
+own on top of `0001-*`.
 
 ### Known emulation issues
 
@@ -172,7 +235,7 @@ the build relies on `security_olddefconfig` to normalize the policy files.
   bug.** With barebox's SDMA path (`sdhci_transfer_data_dma()`), every
   128-sector transfer through QEMU's uSDHC model comes back with the final
   512-byte sector stale while all other sectors are intact (found with
-  `crc32 -f /dev/mmc1.kernel <off>+<len>` against the host image; the FIT
+  `crc32 -f /dev/mmc1.kernel0 <off>+<len>` against the host image; the FIT
   then fails its `hash-1` checks although the configuration signature,
   which only covers the hash *values*, verifies).
 
@@ -207,13 +270,19 @@ the build relies on `security_olddefconfig` to normalize the policy files.
   boot ROM and HABv4.
 * Attack surface reachable without a shell: the SD card contents (GPT
   parsing, the raw FIT — FIT parsing, hash/signature checks, gzip
-  decompression), the raw environment partition (only if a policy sets
+  decompression), the state partition (parsed and *written* on every boot,
+  before anything is verified, and its contents pick the boot target), the
+  raw environment partition (only if a policy sets
   `SCONFIG_ENVIRONMENT_LOAD`), and whatever the emulated peripherals expose.
   Note that the configuration signature covers the *hash values* of the
   images, not the image bytes; integrity of the bytes rests on the per-image
   `hash-1` checks that barebox performs after the signature check.
 * Each policy is a separate build (`barebox-<policy>`); there is intentionally
   no runtime policy switch (`CMD_SCONFIG_MODIFY` is off).
+* The A/B state is *not* authenticated: it has no `algo = "hmac(…)"` and the
+  policies compile no keystore secret for it. Steering the bootchooser to the
+  other slot by writing the state partition is therefore expected, not a
+  finding — both slots are verified the same way before they are booted.
 * Everything is deterministic given `flake.lock` + `versions.nix`; a finding
   can be reported against the store path (`nix path-info .#images-factory`)
   of the images it was reproduced with.
@@ -226,8 +295,12 @@ the build relies on `security_olddefconfig` to normalize the policy files.
   not in the canonical form `make security_olddefconfig` produces, and that
   form depends on the Kconfig configuration (symbols whose dependencies are
   off disappear). After editing a policy or changing the barebox
-  configuration, run `nix build .#policies-normalized` and copy
+  configuration, run `nix build .#configs-normalized` and copy
   `result/*.sconfig` into `config/policies/`.
+* barebox configuration: the same output also holds `result/defconfig`, the
+  `make savedefconfig` form of `config/barebox/imx8mm-evk-qemu_defconfig`.
+  It carries neither the comments nor the explicit `# … is not set` lines of
+  the checked-in file, so merge rather than copy it.
 * nixpkgs (QEMU, mkimage, dtc, Python, …): `nix flake update nixpkgs`. The
   QEMU minimum version is checked at evaluation time.
 * Toolchain, kernel, busybox: edit URL and hash in `versions.nix`
